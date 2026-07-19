@@ -3,3 +3,8 @@
 *~
 .DS_Store
 .impeccable/
+
+# workspace management artifacts, not part of the plugin
+project.yaml
+.keep
+**/.keep
