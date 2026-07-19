@@ -40,6 +40,13 @@ printf '\e[Bkyq' | _tmux_menu >/dev/null 2>&1   # Down to beta, k, y, q
 assert_eq "k kills highlighted beta" "alpha gamma " "$(names)"
 end_sock
 
+# menu: SS3 arrows (ESC O B) also navigate, not just CSI (ESC [ B)
+new_sock ss3
+for s in alpha beta gamma; do tmux new-session -d -s "$s" 'sleep 300'; done
+printf '\eOBkyq' | _tmux_menu >/dev/null 2>&1   # SS3 Down to beta, k, y, q
+assert_eq "SS3 down + k kills beta" "alpha gamma " "$(names)"
+end_sock
+
 # menu: a no answer at the confirm leaves the session alone
 new_sock decline
 for s in one two; do tmux new-session -d -s "$s" 'sleep 300'; done

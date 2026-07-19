@@ -65,8 +65,13 @@ _tmux_menu() {
     drawn=$((n+1))
     IFS= read -rsn1 key
     case "$key" in
-      $'\e') read -rsn2 -t 0.05 rest
-             case "$rest" in '[A') ((sel=(sel-1+n)%n));; '[B') ((sel=(sel+1)%n));; esac ;;
+      $'\e') # arrow key: CSI (ESC [ A/B) or SS3 (ESC O A/B). Read the two trailing
+             # bytes one at a time, tolerating latency between them.
+             read -rsn2 -t 0.4 rest
+             case "$rest" in
+               '[A'|'OA') ((sel=(sel-1+n)%n)) ;;
+               '[B'|'OB') ((sel=(sel+1)%n)) ;;
+             esac ;;
       '')    printf '\e[?25h'
              if (( sel >= ${#sess[@]} )); then tmux new-session; else tmux attach -t "${sess[sel]}"; fi
              return ;;

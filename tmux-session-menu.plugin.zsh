@@ -40,7 +40,11 @@ _tmux_menu() {
   setopt local_options ksh_arrays          # 0-indexed arrays, like the bash port
   local -a sess labels
   local letters=({a..z})
-  local n sel=0 i key rest ans drawn=0 out
+  local n sel=0 i key rest ans drawn=0 out _sv=""
+  # bash read -n sets raw mode automatically; zsh read -k -u0 does not, so
+  # enable raw mode here for live single keypresses. Restored in always below.
+  [ -t 0 ] && { _sv=$(stty -g 2>/dev/null); stty -icanon -echo min 1 time 0 2>/dev/null; }
+  {
   while :; do
     out=$(tmux ls -F '#{session_name}' 2>/dev/null)
     if [ -z "$out" ]; then
@@ -61,8 +65,13 @@ _tmux_menu() {
     drawn=$((n+1))
     read -rsk1 -u0 key || { printf '\e[?25h'; return; }
     case "$key" in
-      $'\e') read -rsk2 -u0 -t 0.05 rest 2>/dev/null
-             case "$rest" in '[A') ((sel=(sel-1+n)%n));; '[B') ((sel=(sel+1)%n));; esac ;;
+      $'\e') # arrow key: CSI (ESC [ A/B) or SS3 (ESC O A/B). Read the two trailing
+             # bytes one at a time, tolerating latency between them.
+             read -rsk2 -u0 -t 0.4 rest 2>/dev/null
+             case "$rest" in
+               '[A'|'OA') ((sel=(sel-1+n)%n)) ;;
+               '[B'|'OB') ((sel=(sel+1)%n)) ;;
+             esac ;;
       $'\n'|$'\r')
              printf '\e[?25h'
              if (( sel >= ${#sess[@]} )); then tmux new-session; else tmux attach -t "${sess[sel]}"; fi
@@ -80,6 +89,9 @@ _tmux_menu() {
              return ;;
     esac
   done
+  } always {
+    [[ -n "$_sv" ]] && stty "$_sv" 2>/dev/null
+  }
 }
 
 tm() {
