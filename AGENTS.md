@@ -4,18 +4,36 @@ Project instructions for agents working in this repo.
 
 ## What this is
 
-A single bash file, `tmux-session-menu.sh`, that you source from `~/.bashrc`. It
-shows an interactive tmux session menu at login and provides zombie garbage
-collection. Everything else in the repo supports installing and testing it.
+An interactive tmux session menu at login, with zombie garbage collection.
+Shipped for two shells: `tmux-session-menu.sh` for bash and
+`tmux-session-menu.plugin.zsh` for zsh and oh-my-zsh. Everything else supports
+installing and testing it.
 
 ## Layout
 
-- `tmux-session-menu.sh`  the whole tool, source of truth
-- `scripts/install.sh`    copy the script, add a source block to the shell rc
-- `scripts/uninstall.sh`  reverse the install
-- `test/test.sh`          tests against an isolated tmux socket
-- `Makefile`              install, uninstall, test, lint targets
-- `README.md`             user facing docs
+- `tmux-session-menu.sh`         bash implementation
+- `tmux-session-menu.plugin.zsh` zsh / oh-my-zsh implementation
+- `scripts/install.sh`           copy the bash script, add a source block to the rc
+- `scripts/uninstall.sh`         reverse the install
+- `test/test.sh`                 bash tests against an isolated tmux socket
+- `test/test.zsh`                zsh tests against an isolated tmux socket
+- `Makefile`                     install, uninstall, test, lint targets
+- `README.md`                    user facing docs
+
+## Two implementations, keep them in sync
+
+The bash and zsh files must stay behaviourally identical. When you change one,
+change the other and run both test suites. Known shell differences already
+handled:
+
+- bash uses `mapfile` and `read -rsn`; zsh uses `${(@f)...}` and `read -rsk`.
+- zsh `read -k` reads the terminal by default, so the zsh port passes `-u0` to
+  read from fd 0, which is both the terminal interactively and the pipe in tests.
+- zsh arrays are 1 indexed; the zsh port sets `ksh_arrays` to match the bash 0
+  indexed logic.
+- bash `read -n1` returns empty on Enter; zsh `read -k1` returns a newline, so the
+  zsh port matches `$'\n'` and `$'\r'` for Enter and guards read failure to avoid
+  an EOF loop.
 
 ## Conventions
 

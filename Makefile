@@ -14,11 +14,14 @@ uninstall:
 	@bash scripts/uninstall.sh
 
 test:
-	@bash test/test.sh
+	@echo "# bash"; bash test/test.sh
+	@if command -v zsh >/dev/null 2>&1; then echo "# zsh"; zsh test/test.zsh; \
+	else echo "# zsh not installed, skipping zsh tests"; fi
 
 lint:
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck -S warning tmux-session-menu.sh scripts/*.sh test/*.sh; \
+		shellcheck -S warning tmux-session-menu.sh scripts/*.sh test/test.sh; \
 	else \
 		echo "shellcheck not installed, skipping"; \
 	fi
+	@if command -v zsh >/dev/null 2>&1; then zsh -n tmux-session-menu.plugin.zsh && echo "zsh -n: plugin OK"; fi

@@ -46,6 +46,27 @@ Manual install: source the script from your `~/.bashrc`.
 source /path/to/tmux-session-menu.sh
 ```
 
+### zsh and oh-my-zsh
+
+A zsh port ships as `tmux-session-menu.plugin.zsh`.
+
+oh-my-zsh:
+
+```sh
+git clone https://github.com/valllabh/tmux-session-menu.git \
+  "$ZSH_CUSTOM/plugins/tmux-session-menu"
+```
+
+Then add it to your plugin list in `~/.zshrc`:
+
+```sh
+plugins=(... tmux-session-menu)
+```
+
+Other zsh plugin managers point at the repo and load the `.plugin.zsh` file, for
+example with sheldon or zinit `zinit load valllabh/tmux-session-menu`. Manual
+install: `source /path/to/tmux-session-menu.plugin.zsh` from your `~/.zshrc`.
+
 ## Usage
 
 Open a shell. If tmux sessions exist you get the menu.
@@ -84,7 +105,7 @@ bare shell. Anything running a real program, or attached, is left alone.
 
 ## Requirements
 
-- bash 4 or newer, for `mapfile` and the arrow key reader
+- bash 4 or newer, or zsh 5, for the arrow key reader and arrays
 - tmux
 
 ## Uninstall
