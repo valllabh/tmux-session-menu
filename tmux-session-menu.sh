@@ -47,15 +47,21 @@ tmux-gc() {
 # Labels are truncated to the terminal width so every entry stays one line, which
 # the menu redraw math depends on.
 _tmux_menu_labels() {
-  local t=$'\t' width=${COLUMNS:-80} host max name w att cmd title label
+  local t=$'\t' width host max name w att cmd title label
+  # COLUMNS is unset in a non interactive shell and 0 with no tty, so neither
+  # value can be trusted on its own. Fall back to tput, then to 80.
+  width=${COLUMNS:-0}
+  case "$width" in ''|*[!0-9]*) width=0 ;; esac
+  [ "$width" -gt 0 ] || width=$(tput cols 2>/dev/null)
+  case "$width" in ''|*[!0-9]*|0) width=80 ;; esac
   host=${HOSTNAME:-$(hostname 2>/dev/null)}; host=${host:-$'\x01'}
   max=$((width-8)); (( max < 20 )) && max=20
   while IFS="$t" read -r name w att cmd title; do
     [ -n "$name" ] || continue
-    label="$name  (${w}w, $att, $cmd)"
+    # A real title says more than the command name does, so it replaces it.
     case "$title" in
-      ''|"$name"|"$cmd"|*"$host"*) ;;
-      *) label="$label · $title" ;;
+      ''|"$name"|"$cmd"|*"$host"*) label="$name  (${w}w, $att, $cmd)" ;;
+      *)                           label="$name  (${w}w, $att) · $title" ;;
     esac
     label=${label//[$'\t\r\n']/ }
     (( ${#label} > max )) && label="${label:0:$((max-1))}…"

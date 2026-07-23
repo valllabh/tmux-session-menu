@@ -73,16 +73,18 @@ Open a shell. If tmux sessions exist you get the menu.
 
 ```
 Session  —  ↑/↓+Enter attach · letter jump · k kill · q shell
-  a) main   (1w, detached, claude) · ✳ Build the news aggregator
-> b) work   (2w, detached, vim) · README.md
+  a) main   (1w, detached) · ✳ Build the news aggregator
+> b) work   (2w, detached) · README.md
   c) New session
 ```
 
-Each row ends with the pane title when the running program sets a useful one.
-Claude Code puts the task it is working on there, so several `claude` sessions
-stay tellable apart instead of all reading as "claude". Titles that carry nothing
-new, the host name, the session name or the command itself, are left out. Rows
-are truncated to the terminal width so the menu stays one line per session.
+Each row ends with the pane title when the running program sets a useful one, in
+place of the command name, which the title already implies. Claude Code puts the
+task it is working on there, so several `claude` sessions stay tellable apart
+instead of all reading as "claude". Titles that carry nothing new, the host name,
+the session name or the command itself, are left out and the command is shown
+instead. Rows are truncated to the terminal width so the menu stays one line per
+session.
 
 | Key            | Action                                         |
 |----------------|------------------------------------------------|

@@ -67,6 +67,10 @@ tmux new-session -d -s work 'sleep 300'
 tmux select-pane -t work -T "${(l:200::x:)}"
 label=$(COLUMNS=60 _tmux_menu_labels)
 assert_eq "label truncated to width" "52" "${#label}"
+# COLUMNS is 0 with no tty: fall back to tput, do not clamp to the 20 char floor
+label=$(COLUMNS=0 _tmux_menu_labels)
+if [ "${#label}" -gt 40 ]; then print "ok   - zero COLUMNS falls back to tput width"
+else print "FAIL - zero COLUMNS clamped the label (got ${#label} chars)"; fail=1; fi
 end_sock
 
 [ "$fail" -eq 0 ] && print "all tests passed"
