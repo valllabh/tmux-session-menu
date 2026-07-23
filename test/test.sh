@@ -54,5 +54,26 @@ printf 'knq' | _tmux_menu >/dev/null 2>&1        # k on one, answer n, q
 assert_eq "kill declined keeps sessions" "one two " "$(names)"
 end_sock
 
+# labels: a meaningful pane title is shown, a shell style host title is dropped
+new_sock title
+tmux new-session -d -s work 'sleep 300'
+tmux select-pane -t work -T '✳ Fix the parser'
+label=$(COLUMNS=120 _tmux_menu_labels)
+case "$label" in *"✳ Fix the parser"*) echo "ok   - pane title shown in label" ;;
+                 *) echo "FAIL - pane title missing (got [$label])"; fail=1 ;; esac
+tmux select-pane -t work -T "${HOSTNAME:-$(hostname)}: ~/work"
+label=$(COLUMNS=120 _tmux_menu_labels)
+case "$label" in *"~/work"*) echo "FAIL - host title not dropped (got [$label])"; fail=1 ;;
+                 *) echo "ok   - host style title dropped" ;; esac
+end_sock
+
+# labels: long titles are truncated so each entry stays a single line
+new_sock trunc
+tmux new-session -d -s work 'sleep 300'
+tmux select-pane -t work -T "$(printf 'x%.0s' {1..200})"
+label=$(COLUMNS=60 _tmux_menu_labels)
+assert_eq "label truncated to width" "52" "${#label}"
+end_sock
+
 [ "$fail" -eq 0 ] && echo "all tests passed"
 exit "$fail"

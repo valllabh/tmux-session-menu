@@ -33,6 +33,30 @@ tmux-gc() {
   return 0
 }
 
+# Build one display label per session. The pane title is appended when it says
+# something the command name does not: Claude Code, vim and friends set it to
+# the task in hand, so "claude" becomes "claude · ✳ Fix the parser". Titles that
+# are just the host, the session name or the command are dropped as noise.
+# Labels are truncated to the terminal width so every entry stays one line, which
+# the menu redraw math depends on.
+_tmux_menu_labels() {
+  emulate -L zsh
+  local t=$'\t' width=${COLUMNS:-80} host max name w att cmd title label
+  host=${HOST:-$(hostname 2>/dev/null)}; host=${host:-$'\x01'}
+  max=$((width-8)); (( max < 20 )) && max=20
+  while IFS="$t" read -r name w att cmd title; do
+    [ -n "$name" ] || continue
+    label="$name  (${w}w, $att, $cmd)"
+    case "$title" in
+      ''|"$name"|"$cmd"|*"$host"*) ;;
+      *) label="$label · $title" ;;
+    esac
+    label=${label//[$'\t\r\n']/ }
+    (( ${#label} > max )) && label="${label:0:$((max-1))}…"
+    printf '%s\n' "$label"
+  done < <(tmux ls -F "#{session_name}$t#{session_windows}$t#{?session_attached,attached,detached}$t#{pane_current_command}$t#{pane_title}" 2>/dev/null)
+}
+
 # Interactive tmux session menu: navigate (Up/Down + Enter), jump by letter,
 # kill a session (k, with confirm), pick "New session", or quit to a shell (q).
 _tmux_menu() {
@@ -52,7 +76,7 @@ _tmux_menu() {
       printf '\e[?25h'; tmux new-session; return
     fi
     sess=("${(@f)out}")
-    labels=("${(@f)$(tmux ls -F '#{session_name}  (#{session_windows}w, #{?session_attached,attached,detached}, #{pane_current_command})' 2>/dev/null)}")
+    labels=("${(@f)$(_tmux_menu_labels)}")
     labels+=("New session"); n=${#labels[@]}
     (( sel >= n )) && sel=$((n-1)); (( sel < 0 )) && sel=0
     (( drawn > 0 )) && printf '\e[%dA\e[J' "$drawn"

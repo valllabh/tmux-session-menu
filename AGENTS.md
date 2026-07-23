@@ -39,7 +39,7 @@ handled:
 
 - Keep the tool a single sourceable bash file with no runtime dependencies
   beyond bash 4 and tmux.
-- Public functions: `tmux-gc`, `tm`. Internal: `_tmux_menu`.
+- Public functions: `tmux-gc`, `tm`. Internal: `_tmux_menu`, `_tmux_menu_labels`.
 - Behaviour is driven by env vars, documented in the README. Do not add new
   config surfaces without updating the README table.
 - Tests must never touch the user real tmux server. Always use an isolated
