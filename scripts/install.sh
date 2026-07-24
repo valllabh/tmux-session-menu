@@ -12,6 +12,8 @@ mkdir -p "$DEST_DIR"
 cp "$SRC_DIR/tmux-session-menu.sh" "$DEST_DIR/tmux-session-menu.sh"
 echo "installed script -> $DEST_DIR/tmux-session-menu.sh"
 
+command -v tmux >/dev/null 2>&1 || echo "note: tmux is not installed, nothing will launch until it is"
+
 if grep -qF "$BEGIN" "$RC" 2>/dev/null; then
   echo "source block already present in $RC, leaving it alone"
 else

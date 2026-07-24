@@ -1,5 +1,5 @@
 # tmux-session-menu (zsh / oh-my-zsh plugin)
-# zsh port of tmux-session-menu.sh. Same behaviour, zsh native reader and arrays.
+# zsh port of tmux-session-menu.sh. Same behaviour.
 #
 # oh-my-zsh: clone into $ZSH_CUSTOM/plugins/tmux-session-menu and add
 #   plugins=(... tmux-session-menu)
@@ -7,7 +7,14 @@
 #
 # Provides: tmux-gc [-v], tm, _tmux_menu
 # Tunables: TMUX_MENU_AUTOLAUNCH (default 1), TMUX_GC_CLIENT_IDLE (300),
-#           TMUX_GC_SESSION_IDLE (3600)
+#           TMUX_GC_SESSION_IDLE (3600), TMUX_MENU_FORMAT
+
+# The disposable session the menu floats over, so the popup is the only thing on
+# screen instead of your last session's live output. Created blank with its
+# status bar off, killed the instant you pick or create, and reaped by tmux-gc
+# if you dismiss onto it. The name is prefixed so it does not collide with a real
+# session and reads as ours if it is ever seen.
+_TSM_SCRATCH=_tsm_scratch
 
 tmux-gc() {
   emulate -L zsh
@@ -21,9 +28,13 @@ tmux-gc() {
     [ -n "$tty" ] || continue
     [ $(( now - act )) -ge "$idle_c" ] && tmux detach-client -t "$tty" 2>/dev/null && reaped=$((reaped+1))
   done < <(tmux list-clients -F '#{client_tty} #{client_activity}' 2>/dev/null)
-  # abandoned sessions: detached, running only a bare shell, idle past threshold
+  # abandoned sessions: detached, running only a bare shell, idle past threshold.
+  # Our own scratch holder, left detached by a dismiss, is disposable at once.
   while read -r name att cmd act; do
     [ -n "$name" ] || continue
+    if [ "$name" = "$_TSM_SCRATCH" ] && [ "$att" = "0" ]; then
+      tmux kill-session -t "$name" 2>/dev/null && killed=$((killed+1)); continue
+    fi
     [ "$att" = "0" ] && [ $(( now - act )) -ge "$idle_s" ] || continue
     case "$cmd" in
       bash|-bash|zsh|-zsh|sh|fish) tmux kill-session -t "$name" 2>/dev/null && { killed=$((killed+1)); [ "${1:-}" = "-v" ] && echo "gc: killed idle empty session '$name'"; } ;;
@@ -33,100 +44,87 @@ tmux-gc() {
   return 0
 }
 
-# Build one display label per session. The pane title is appended when it says
-# something the command name does not: Claude Code, vim and friends set it to
-# the task in hand, so "claude" becomes "claude · ✳ Fix the parser". Titles that
-# are just the host, the session name or the command are dropped as noise.
-# Labels are truncated to the terminal width so every entry stays one line, which
-# the menu redraw math depends on.
-_tmux_menu_labels() {
+# One row per session: how big it is, which project it sits in, and what it is
+# doing. tmux resolves the pane formats against the session active pane, so a
+# session running Claude Code shows the task in hand rather than a bare number.
+# Two things only earn their place when they say something new: the directory is
+# dropped when it matches the session name, and the pane title gives way to the
+# command name when it is only the host name or the session name. The title is
+# capped so one talkative session cannot stretch the menu past the terminal.
+_TMUX_MENU_FORMAT_DEFAULT='#{session_windows}w#{?session_attached, · attached,}  #{?#{==:#{b:pane_current_path},#{session_name}},,#{b:pane_current_path}  }#{?#{||:#{m:*#{host_short}*,#{pane_title}},#{==:#{pane_title},#{session_name}}},#{pane_current_command},#{=40:pane_title}}'
+
+_tmux_menu_format() {
   emulate -L zsh
-  local t=$'\t' width host max name w att cmd title label
-  # COLUMNS is unset in a non interactive shell and 0 with no tty, so neither
-  # value can be trusted on its own. Fall back to tput, then to 80.
-  width=${COLUMNS:-0}
-  case "$width" in ''|*[!0-9]*) width=0 ;; esac
-  [ "$width" -gt 0 ] || width=$(tput cols 2>/dev/null)
-  case "$width" in ''|*[!0-9]*|0) width=80 ;; esac
-  host=${HOST:-$(hostname 2>/dev/null)}; host=${host:-$'\x01'}
-  max=$((width-8)); (( max < 20 )) && max=20
-  while IFS="$t" read -r name w att cmd title; do
-    [ -n "$name" ] || continue
-    # A real title says more than the command name does, so it replaces it.
-    case "$title" in
-      ''|"$name"|"$cmd"|*"$host"*) label="$name  (${w}w, $att, $cmd)" ;;
-      *)                           label="$name  (${w}w, $att) · $title" ;;
-    esac
-    label=${label//[$'\t\r\n']/ }
-    (( ${#label} > max )) && label="${label:0:$((max-1))}…"
-    printf '%s\n' "$label"
-  done < <(tmux ls -F "#{session_name}$t#{session_windows}$t#{?session_attached,attached,detached}$t#{pane_current_command}$t#{pane_title}" 2>/dev/null)
+  printf '%s' "${TMUX_MENU_FORMAT:-$_TMUX_MENU_FORMAT_DEFAULT}"
 }
 
-# Interactive tmux session menu: navigate (Up/Down + Enter), jump by letter,
-# kill a session (k, with confirm), pick "New session", or quit to a shell (q).
+# One display-menu triple per session: label, shortcut key, command. Fills the
+# global _TMUX_MENU_ITEMS because a function cannot return an array. The scratch
+# holder is skipped so a lingering one never shows as a choice.
+#
+# display-menu expands both the label and the command as formats, so a literal
+# hash in a pane title has to be doubled or tmux swallows it, and the command is
+# re-parsed by tmux, so a quote or backslash in a session name has to be escaped
+# or it ends the argument early. Choosing a session switches to it and disposes
+# of the holder in one command, the two separated by a bare " ; " inside the
+# single command string.
+_tmux_menu_items() {
+  emulate -L zsh
+  local keys='abcefghijklmoprstuvwyz' i=0 name label esc tab
+  tab=$(printf '\t')
+  _TMUX_MENU_ITEMS=()
+  while IFS="$tab" read -r name label; do
+    [ -n "$name" ] || continue
+    [ "$name" = "$_TSM_SCRATCH" ] && continue
+    [ "$i" -lt "${#keys}" ] || break
+    esc=${name//\\/\\\\}; esc=${esc//\"/\\\"}
+    _TMUX_MENU_ITEMS+=("${label//\#/##}" "${keys:$i:1}" "switch-client -t \"$esc\" ; kill-session -t $_TSM_SCRATCH")
+    i=$((i+1))
+  done < <(tmux ls -F "#{session_name}$tab#{session_name}  $(_tmux_menu_format)" 2>/dev/null)
+}
+
+# The picker is tmux own. Attach to a blank throwaway session, then open a
+# display-menu over it: one key per running session, plus the two things
+# choose-tree cannot do, which are starting a session and getting out of the way.
+# The full chooser is one key further in, for filtering, killing and previews.
+# Nothing of ours draws the screen, which is the whole point: it cannot fail to
+# render at login.
+#
+# The `run-shell -d` is not a cosmetic pause and must not be removed. A
+# display-menu queued directly behind attach-session is silently dropped,
+# because the client has not finished attaching and has no screen to draw an
+# overlay on, and you land in a bare session with no menu at all. run-shell
+# blocks the command queue, so the menu is dispatched a beat later, once the
+# client is up. Any non zero delay works, 0 does not, and the margin here is
+# generous because the cost of it being too short is no menu.
+#
+# Every path that commits to a session disposes of the holder inline; the one
+# path that does not is dismissing the menu with Escape, which leaves you sitting
+# in the blank holder. tmux exposes no event for a menu closing, so this cannot
+# be cleaned on the spot: tmux-gc reaps the holder on the next run instead.
 _tmux_menu() {
   emulate -L zsh
-  setopt local_options ksh_arrays          # 0-indexed arrays, like the bash port
-  local -a sess labels
-  local letters=({a..z})
-  local n sel=0 i key rest ans drawn=0 out _sv=""
-  # bash read -n sets raw mode automatically; zsh read -k -u0 does not, so
-  # enable raw mode here for live single keypresses. Restored in always below.
-  [ -t 0 ] && { _sv=$(stty -g 2>/dev/null); stty -icanon -echo min 1 time 0 2>/dev/null; }
-  {
-  while :; do
-    out=$(tmux ls -F '#{session_name}' 2>/dev/null)
-    if [ -z "$out" ]; then
-      (( drawn > 0 )) && printf '\e[%dA\e[J' "$drawn"
-      printf '\e[?25h'; tmux new-session; return
-    fi
-    sess=("${(@f)out}")
-    labels=("${(@f)$(_tmux_menu_labels)}")
-    labels+=("New session"); n=${#labels[@]}
-    (( sel >= n )) && sel=$((n-1)); (( sel < 0 )) && sel=0
-    (( drawn > 0 )) && printf '\e[%dA\e[J' "$drawn"
-    printf '\e[?25l'
-    printf 'Session  —  ↑/↓+Enter attach · letter jump · k kill · q shell\n'
-    for (( i=0; i<n; i++ )); do
-      if (( i == sel )); then printf '\e[7m  %s) %s  \e[0m\n' "${letters[i]}" "${labels[i]}"
-      else                    printf '  %s) %s\n' "${letters[i]}" "${labels[i]}"; fi
-    done
-    drawn=$((n+1))
-    read -rsk1 -u0 key || { printf '\e[?25h'; return; }
-    case "$key" in
-      $'\e') # arrow key: CSI (ESC [ A/B) or SS3 (ESC O A/B). Read the two trailing
-             # bytes one at a time, tolerating latency between them.
-             read -rsk2 -u0 -t 0.4 rest 2>/dev/null
-             case "$rest" in
-               '[A'|'OA') ((sel=(sel-1+n)%n)) ;;
-               '[B'|'OB') ((sel=(sel+1)%n)) ;;
-             esac ;;
-      $'\n'|$'\r')
-             printf '\e[?25h'
-             if (( sel >= ${#sess[@]} )); then tmux new-session; else tmux attach -t "${sess[sel]}"; fi
-             return ;;
-      q|Q)   printf '\e[?25h'; return ;;
-      k|K)   if (( sel < ${#sess[@]} )); then
-               printf '\e[?25h'; printf 'Kill session "%s"? [y/N] ' "${sess[sel]}"
-               read -rsk1 -u0 ans; printf '\n'
-               case "$ans" in y|Y) tmux kill-session -t "${sess[sel]}" 2>/dev/null;; esac
-               drawn=$((n+2))
-             fi ;;
-      [a-z]) for (( i=0; i<n; i++ )); do [ "${letters[i]}" = "$key" ] && sel=$i; done
-             printf '\e[?25h'
-             if (( sel >= ${#sess[@]} )); then tmux new-session; else tmux attach -t "${sess[sel]}"; fi
-             return ;;
-    esac
-  done
-  } always {
-    [[ -n "$_sv" ]] && stty "$_sv" 2>/dev/null
-  }
+  _tmux_menu_items
+  # Nothing to choose between. An empty menu at login is a dead end, so skip
+  # straight to the one useful thing.
+  (( ${#_TMUX_MENU_ITEMS[@]} == 0 )) && { tmux new-session; return }
+  tmux kill-session -t "$_TSM_SCRATCH" 2>/dev/null
+  tmux new-session -d -s "$_TSM_SCRATCH"
+  tmux set-option -t "$_TSM_SCRATCH" status off
+  tmux attach-session -t "$_TSM_SCRATCH" \; run-shell -d 0.3 \; display-menu -T ' tmux sessions ' -x C -y C \
+    "${_TMUX_MENU_ITEMS[@]}" \
+    '' \
+    'New session'         n "new-session ; kill-session -t $_TSM_SCRATCH" \
+    'New session, named'  N "command-prompt -p 'new session name:' 'new-session -s \"%%\" ; kill-session -t $_TSM_SCRATCH'" \
+    '' \
+    'Chooser: filter, kill, preview' / "choose-tree -Zs -F \"$(_tmux_menu_format)\" \"switch-client -t '%%' ; kill-session -t $_TSM_SCRATCH\"" \
+    'Detach to a plain shell'        d 'detach-client'
 }
 
 tm() {
-  if [ -n "$TMUX" ]; then echo "Already inside tmux — detach first with Ctrl-b d, then run tm"; return 1; fi
-  tmux-gc; _tmux_menu
+  if [ -n "$TMUX" ]; then echo "Already inside tmux. Press Ctrl-b s for the chooser, or detach with Ctrl-b d first."; return 1; fi
+  tmux-gc
+  _tmux_menu
 }
 
 # Auto launch at interactive login when not already inside tmux.
